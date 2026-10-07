@@ -1,0 +1,565 @@
+========================================================================================
+DOKUMEN PSEUDOCODE PROGRAM OPTIMASI RUTE TERPENDEK
+File Sumber : Route_Finder.py
+Mata Kuliah : Kecerdasan Tiruan (I)
+Kelompok    : 6
+Anggota     : 
+  1. Nyoman Gede Adi Mahardika    (2405551062)
+  2. Ida Bagus Dalem Werda Adnyana (2505551131)
+  3. Tyo Putra Kharinata          (2405551162)
+  4. Cornel Asmara Noya Oleona    (2505551164)
+Dosen       : I Nyoman Prayana Trisna, S.Kom., M.Cs.
+Universitas Udayana
+========================================================================================
+
+----------------------------------------------------------------------------------------
+1. DEKLARASI KONSTANTA & STRUKTUR DATA GLOBAL
+----------------------------------------------------------------------------------------
+
+KONSTANTA WELCOMING_MENU_STR : String
+    Teks sambutan, deskripsi program, dan daftar opsi menu [1, 2, 3, 0].
+
+KONSTANTA AUTHOR_MENU_STR : String
+    Teks informasi identitas mata kuliah, dosen pengampu, dan anggota Kelompok 6.
+
+KONSTANTA GOODBYE_MENU_STR : String
+    Teks apresiasi dan perpisahan saat pengguna keluar dari program.
+
+KONSTANTA HARDCODED_NODES : List of String
+    HARDCODED_NODES <- ["A", "B", "C", "D", "E", "F"]
+
+KONSTANTA HARDCODED_GRAPH : Dictionary / Adjacency List
+    HARDCODED_GRAPH <- {
+        "A": {"B": 4, "C": 6},
+        "B": {"C": 2, "D": 9, "F": 2},
+        "C": {"D": 8},
+        "D": {"E": 9},
+        "E": {},
+        "F": {"B": 2}
+    }
+
+
+----------------------------------------------------------------------------------------
+2. FUNGSI & PROSEDUR UTILITAS SISTEM
+----------------------------------------------------------------------------------------
+
+PROSEDUR clear_screen()
+DESKRIPSI: Membersihkan tampilan terminal console.
+BEGIN
+    IF Sistem_Operasi = "Windows" THEN
+        Jalankan perintah sistem "cls"
+    ELSE
+        Jalankan perintah sistem "clear"
+    END IF
+END PROSEDUR
+
+
+PROSEDUR pause_screen(prompt_text : String)
+DESKRIPSI: Menghentikan eksekusi sementara sampai pengguna menekan tombol ENTER.
+BEGIN
+    TRY
+        Tampilkan prompt_text
+        Tunggu pengguna menekan tombol ENTER (baca input baris kosong)
+    CATCH (Interupsi_Keyboard atau EOF)
+        Lanjutkan eksekusi tanpa error
+    END TRY
+END PROSEDUR
+
+
+----------------------------------------------------------------------------------------
+3. FUNGSI VALIDASI INPUT (FOOLPROOF VALIDATION)
+----------------------------------------------------------------------------------------
+
+FUNGSI get_valid_menu_choice(allowed_choices : List of Integer) -> Integer
+DESKRIPSI: Memvalidasi input pemilihan menu utama agar tidak terjadi crash.
+BEGIN
+    WHILE TRUE DO
+        TRY
+            Tampilkan prompt "Pilih menu [0-3]: "
+            Baca raw_input
+            raw_input <- Pangkas_Spasi(raw_input)
+
+            IF raw_input KOSONG THEN
+                Tampilkan pesan error "[ERROR] Pilihan tidak boleh kosong!"
+                CONTINUE
+            END IF
+
+            choice <- Konversi_Ke_Integer(raw_input)
+
+            IF choice BERADA DALAM allowed_choices THEN
+                RETURN choice
+            ELSE
+                Tampilkan pesan error "[ERROR] Pilihan di luar jangkauan yang diizinkan!"
+            END IF
+        CATCH ValueError
+            Tampilkan pesan error "[ERROR] Input harus berupa bilangan bulat valid!"
+        CATCH (Interupsi_Keyboard atau EOF)
+            Tampilkan pesan info "[INFO] Input terinterupsi. Memilih keluar (0)..."
+            RETURN 0
+        END TRY
+    END WHILE
+END FUNGSI
+
+
+FUNGSI get_valid_integer(prompt_str : String, min_val : Integer, max_val : Integer) -> Integer
+DESKRIPSI: Memvalidasi input bilangan bulat dalam batas rentang [min_val, max_val].
+BEGIN
+    WHILE TRUE DO
+        TRY
+            Tampilkan prompt_str
+            Baca raw_input
+            raw_input <- Pangkas_Spasi(raw_input)
+
+            IF raw_input KOSONG THEN
+                Tampilkan pesan error "[ERROR] Input tidak boleh kosong!"
+                CONTINUE
+            END IF
+
+            val <- Konversi_Ke_Integer(raw_input)
+
+            IF (min_val IS NOT NULL) DAN (val < min_val) THEN
+                Tampilkan pesan error "[ERROR] Nilai minimal adalah " + min_val
+                CONTINUE
+            END IF
+
+            IF (max_val IS NOT NULL) DAN (val > max_val) THEN
+                Tampilkan pesan error "[ERROR] Nilai maksimal adalah " + max_val
+                CONTINUE
+            END IF
+
+            RETURN val
+        CATCH ValueError
+            Tampilkan pesan error "[ERROR] Input harus berupa bilangan bulat (integer)!"
+        CATCH (Interupsi_Keyboard atau EOF)
+            Tampilkan pesan info "[INFO] Input terinterupsi. Silakan masukkan nilai kembali."
+        END TRY
+    END WHILE
+END FUNGSI
+
+
+FUNGSI get_valid_edge_weight(u : String, v : String) -> Integer
+DESKRIPSI: Memvalidasi input bobot sisi antara node u ke node v (menolak bobot negatif).
+BEGIN
+    WHILE TRUE DO
+        TRY
+            Tampilkan prompt "Bobot edge " + u + " -> " + v + " [ENTER/'0' jika tidak terhubung]: "
+            Baca raw_input
+            raw_input <- Pangkas_Spasi(raw_input)
+
+            IF (raw_input KOSONG) ATAU (raw_input = "0") THEN
+                RETURN 0
+            END IF
+
+            val <- Konversi_Ke_Integer(raw_input)
+
+            IF val < 0 THEN
+                Tampilkan pesan error "[ERROR] Bobot tidak boleh negatif! Syarat Dijkstra bobot >= 0."
+                CONTINUE
+            END IF
+
+            RETURN val
+        CATCH ValueError
+            Tampilkan pesan error "[ERROR] Input tidak valid! Masukkan angka bulat non-negatif."
+        CATCH (Interupsi_Keyboard atau EOF)
+            Tampilkan pesan info "[INFO] Input terinterupsi. Silakan coba lagi."
+        END TRY
+    END WHILE
+END FUNGSI
+
+
+FUNGSI get_valid_node(prompt_str : String, available_nodes : List of String) -> String
+DESKRIPSI: Memvalidasi pemilihan nama simpul (case-insensitive).
+BEGIN
+    WHILE TRUE DO
+        TRY
+            Tampilkan prompt_str
+            Baca raw_input
+            raw_input <- Ubah_Ke_Huruf_Kapital(Pangkas_Spasi(raw_input))
+
+            IF raw_input KOSONG THEN
+                Tampilkan pesan error "[ERROR] Input tidak boleh kosong!"
+                CONTINUE
+            END IF
+
+            IF raw_input BERADA DALAM available_nodes THEN
+                RETURN raw_input
+            ELSE
+                Tampilkan pesan error "[ERROR] Node '" + raw_input + "' tidak terdaftar!"
+            END IF
+        CATCH (Interupsi_Keyboard atau EOF)
+            Tampilkan pesan info "[INFO] Input terinterupsi. Silakan pilih kembali."
+        END TRY
+    END WHILE
+END FUNGSI
+
+
+FUNGSI generate_node_labels(num_nodes : Integer) -> List of String
+DESKRIPSI: Menghasilkan deret nama simpul alfabetis kapital A, B, C, ... sebanyak num_nodes.
+BEGIN
+    labels <- List Kosong
+    FOR i <- 0 TO (num_nodes - 1) DO
+        Tambahkan Karakter_Alfabet('A' + i) ke dalam labels
+    END FOR
+    RETURN labels
+END FUNGSI
+
+
+----------------------------------------------------------------------------------------
+4. INTI ALGORITMA ROUTE FINDER & PENCATATAN TRACING
+----------------------------------------------------------------------------------------
+
+FUNGSI run_dijkstra(graph : Dictionary, start_node : String, end_node : String, all_nodes : List of String) -> Dictionary
+DESKRIPSI: Menjalankan Algoritma Dijkstra dan mendokumentasikan setiap iterasi ke trace_records.
+BEGIN
+    // 1. Inisialisasi Tabel Jarak dan Predecessor
+    FOR EACH node IN all_nodes DO
+        distances[node] <- TAK_HINGGA (Infinity)
+        predecessors[node] <- NULL
+    END FOR
+
+    distances[start_node] <- 0
+    unvisited <- Himpunan dari all_nodes
+    visited_sequence <- List Kosong
+    trace_records <- List Kosong
+
+    // 2. Edge Case: Titik asal sama dengan titik tujuan
+    IF start_node = end_node THEN
+        Catat snapshot Langkah 0 ke trace_records:
+            step <- 0, selected_node <- start_node, visited_set <- [start_node],
+            distances <- salinan distances, predecessors <- salinan predecessors,
+            relaxations <- ["Titik asal sama dengan titik tujuan (Jarak = 0)"]
+        RETURN {
+            "path": [start_node],
+            "total_distance": 0,
+            "trace_records": trace_records,
+            "is_found": TRUE
+        }
+    END IF
+
+    // 3. Catat Langkah 0: Inisialisasi Awal
+    Catat snapshot Langkah 0 ke trace_records:
+        step <- 0, selected_node <- "-", visited_set <- [],
+        distances <- salinan distances, predecessors <- salinan predecessors,
+        relaxations <- ["Inisialisasi jarak awal: Node " + start_node + " = 0, Node lainnya = inf"]
+
+    step_counter <- 0
+
+    // 4. Perulangan Utama Dijkstra
+    WHILE unvisited TIDAK KOSONG DO
+        // Cari simpul dalam unvisited yang memiliki jarak terkecil (tie-breaker alfabetis)
+        current_node <- Simpul dengan Nilai distances[node] Terkecil dalam unvisited
+        min_dist <- distances[current_node]
+
+        // Jika jarak terkecil adalah tak hingga, sisa simpul tidak dapat dijangkau
+        IF min_dist = TAK_HINGGA THEN
+            BREAK (Hentikan Perulangan)
+        END IF
+
+        step_counter <- step_counter + 1
+        Hapus current_node dari unvisited
+        Tambahkan current_node ke visited_sequence
+
+        relaxation_notes <- List Kosong
+        neighbors <- Daftar tetangga yang terhubung keluar dari current_node pada graph
+
+        // Proses Relaksasi Sisi Keluar
+        FOR EACH (neighbor, weight) IN neighbors DO
+            IF neighbor BERADA DALAM unvisited THEN
+                tentative_dist <- distances[current_node] + weight
+                IF tentative_dist < distances[neighbor] THEN
+                    old_dist <- distances[neighbor]
+                    distances[neighbor] <- tentative_dist
+                    predecessors[neighbor] <- current_node
+                    Tambahkan catatan: "Relaksasi ke " + neighbor + ": " + old_dist + " -> " + tentative_dist + " (via " + current_node + ")" ke relaxation_notes
+                ELSE
+                    Tambahkan catatan: "Relaksasi ke " + neighbor + ": " + tentative_dist + " >= " + distances[neighbor] + " (tetap)" ke relaxation_notes
+                END IF
+            ELSE IF neighbor BERADA DALAM visited_sequence THEN
+                Tambahkan catatan: "Pemeriksaan ke " + neighbor + ": Sudah permanen di S (dilewati)" ke relaxation_notes
+            END IF
+        END FOR
+
+        IF neighbors KOSONG THEN
+            Tambahkan catatan: "Node " + current_node + " tidak memiliki sisi keluar." ke relaxation_notes
+        END IF
+
+        // Rekam Status Langkah Iterasi Ini
+        Catat ke trace_records:
+            step <- step_counter, selected_node <- current_node,
+            visited_set <- salinan visited_sequence,
+            distances <- salinan distances, predecessors <- salinan predecessors,
+            relaxations <- relaxation_notes
+
+        // Jika simpul tujuan sudah dikunjungi dan optimal, hentikan pencarian
+        IF current_node = end_node THEN
+            BREAK
+        END IF
+    END WHILE
+
+    // 5. Rekonstruksi Lintasan Terpendek dari Predecessor
+    IF distances[end_node] != TAK_HINGGA THEN
+        path <- List Kosong
+        curr <- end_node
+        WHILE curr IS NOT NULL DO
+            Tambahkan curr ke path
+            curr <- predecessors[curr]
+        END WHILE
+        Balikkan urutan elemen path (Reverse path)
+        total_distance <- distances[end_node]
+        is_found <- TRUE
+    ELSE
+        path <- List Kosong
+        total_distance <- TAK_HINGGA
+        is_found <- FALSE
+    END IF
+
+    RETURN {
+        "path": path,
+        "total_distance": total_distance,
+        "trace_records": trace_records,
+        "final_distances": distances,
+        "predecessors": predecessors,
+        "is_found": is_found
+    }
+END FUNGSI
+
+
+----------------------------------------------------------------------------------------
+5. PROSEDUR VISUALISASI HASIL & TABEL TRACING
+----------------------------------------------------------------------------------------
+
+PROSEDUR display_tracing_table(trace_records : List of Dictionary, all_nodes : List of String)
+DESKRIPSI: Mencetak tabel matriks perbaruan jarak iteratif dan log relaksasi ke terminal.
+BEGIN
+    Cetak Garis Pemisah Tabel
+    Cetak Judul "TABEL TRACING PEMBARUAN JARAK TERPENDEK (ALGORITMA DIJKSTRA)"
+    Cetak Kolom Header: "| Langkah | Node Aktif | Visited (S) | [Kolom Tiap Simpul...] |"
+    Cetak Garis Pemisah Header
+
+    FOR EACH record IN trace_records DO
+        step_str <- "L-" + record.step
+        selected <- record.selected_node
+        visited_str <- Format_Himpunan(record.visited_set)
+
+        Bentuk baris teks dengan data kolom step_str, selected, visited_str
+
+        FOR EACH node IN all_nodes DO
+            d <- record.distances[node]
+            pred <- record.predecessors[node]
+            is_perm <- node BERADA DALAM record.visited_set
+
+            IF d = TAK_HINGGA THEN
+                val_str <- "inf"
+            ELSE IF pred IS NOT NULL DAN NOT is_perm THEN
+                val_str <- Format(d) + "(" + pred + ")"
+            ELSE IF is_perm THEN
+                val_str <- Format(d) + "*"
+            ELSE
+                val_str <- Format(d)
+            END IF
+
+            Tambahkan val_str ke baris teks
+        END FOR
+
+        Cetak baris teks data iterasi
+    END FOR
+
+    Cetak Garis Pemisah Bawah
+    Cetak Legenda / Keterangan Simbol (*, (X), inf)
+
+    Cetak Header "RINCIAN LOG PROSES RELAKSASI TIAP LANGKAH"
+    FOR EACH record IN trace_records DO
+        Cetak "[Langkah " + record.step + " (Node: " + record.selected_node + ")]"
+        FOR EACH note IN record.relaxations DO
+            Cetak "  * " + note
+        END FOR
+    END FOR
+END PROSEDUR
+
+
+PROSEDUR display_path_result(start_node : String, end_node : String, path : List of String, total_distance : Float, graph : Dictionary)
+DESKRIPSI: Menampilkan kesimpulan hasil akhir rute terpendek dan rincian akumulasi bobot per segmen.
+BEGIN
+    Cetak Header "HASIL AKHIR PENCARIAN RUTE"
+    Cetak "Titik Awal (Start) : " + start_node
+    Cetak "Titik Tujuan (End) : " + end_node
+
+    IF start_node = end_node THEN
+        Cetak "Status              : SUKSES (Titik Awal == Titik Tujuan)"
+        Cetak "Rute Terpendek      : " + start_node
+        Cetak "Total Bobot / Jarak : 0"
+        RETURN
+    END IF
+
+    IF total_distance = TAK_HINGGA ATAU path KOSONG THEN
+        Cetak "Status              : TIDAK DITEMUKAN RUTE (UNREACHABLE)"
+        Cetak "Rute Terpendek      : -"
+        Cetak "Total Bobot / Jarak : inf (Tak Terhingga)"
+        RETURN
+    END IF
+
+    Cetak "Status              : SUKSES DITEMUKAN"
+    Cetak "Rute Terpendek      : " + Gabungkan_String(path, " -> ")
+    Cetak "Total Bobot / Jarak : " + total_distance
+    Cetak "Rincian Lintasan Segmen per Segmen:"
+
+    cumulative_cost <- 0
+    FOR idx <- 0 TO (Panjang(path) - 2) DO
+        u <- path[idx]
+        v <- path[idx + 1]
+        weight <- graph[u][v]
+        cumulative_cost <- cumulative_cost + weight
+        Cetak "Segmen " + (idx + 1) + ": " + u + " -> " + v + " | Bobot = " + weight + " | Akumulasi Jarak = " + cumulative_cost
+    END FOR
+END PROSEDUR
+
+
+PROSEDUR display_graph_summary(graph : Dictionary, all_nodes : List of String)
+DESKRIPSI: Menampilkan matriks ringkasan bobot dan koneksi antar simpul yang tersimpan.
+BEGIN
+    Cetak Header "RINGKASAN STRUKTUR GRAF & BOBOT"
+    edge_count <- 0
+    FOR EACH u IN all_nodes DO
+        FOR EACH (v, w) IN graph[u] DO
+            Cetak "  * " + u + " -> " + v + " : Bobot = " + w
+            edge_count <- edge_count + 1
+        END FOR
+    END FOR
+    Cetak "Total Simpul (Nodes): " + Panjang(all_nodes) + " | Total Busur (Edges): " + edge_count
+END PROSEDUR
+
+
+----------------------------------------------------------------------------------------
+6. PROSEDUR MENU & PENANGANAN USE CASE
+----------------------------------------------------------------------------------------
+
+PROSEDUR show_welcoming_menu()
+BEGIN
+    Cetak WELCOMING_MENU_STR
+END PROSEDUR
+
+
+PROSEDUR show_main_menu()
+BEGIN
+    clear_screen()
+    show_welcoming_menu()
+END PROSEDUR
+
+
+PROSEDUR show_author_menu()
+BEGIN
+    clear_screen()
+    Cetak AUTHOR_MENU_STR
+    pause_screen()
+END PROSEDUR
+
+
+PROSEDUR show_goodbye_menu()
+BEGIN
+    clear_screen()
+    Cetak GOODBYE_MENU_STR
+END PROSEDUR
+
+
+PROSEDUR run_hardcoded_simulation()
+DESKRIPSI: Menjalankan Use Case 1 (Simulasi studi kasus statis 6 node A ke E).
+BEGIN
+    clear_screen()
+    Cetak Informasi Studi Kasus Graf 6 Node dan Bobot Sisi Statis
+    
+    // Jalankan Dijkstra dari node A ke E
+    result <- run_dijkstra(HARDCODED_GRAPH, "A", "E", HARDCODED_NODES)
+
+    // Visualisasikan tabel tracing dan kesimpulan rute
+    display_tracing_table(result.trace_records, HARDCODED_NODES)
+    display_path_result("A", "E", result.path, result.total_distance, HARDCODED_GRAPH)
+
+    pause_screen()
+END PROSEDUR
+
+
+PROSEDUR run_dynamic_calculator()
+DESKRIPSI: Menjalankan Use Case 2 (Kustomisasi jumlah simpul, input bobot, dan kalkulasi dinamis).
+BEGIN
+    clear_screen()
+    Cetak Header "USE CASE 2: KALKULATOR RUTE DINAMIS"
+
+    // Langkah 1: Input jumlah node (validasi 2 - 26)
+    num_nodes <- get_valid_integer("Masukkan jumlah node (2 - 26): ", 2, 26)
+    custom_nodes <- generate_node_labels(num_nodes)
+    Cetak "[INFO] Simpul yang berhasil dibuat: " + custom_nodes
+
+    // Inisialisasi graf kosong
+    FOR EACH node IN custom_nodes DO
+        custom_graph[node] <- Dictionary Kosong
+    END FOR
+
+    // Langkah 2: Input bobot antar pasangan simpul
+    FOR EACH u IN custom_nodes DO
+        Cetak ">> Konfigurasi edge keluar dari Node [" + u + "]:"
+        FOR EACH v IN custom_nodes DO
+            IF u != v THEN
+                weight <- get_valid_edge_weight(u, v)
+                IF weight > 0 THEN
+                    custom_graph[u][v] <- weight
+                END IF
+            END IF
+        END FOR
+    END FOR
+
+    // Tampilkan ringkasan graf
+    clear_screen()
+    display_graph_summary(custom_graph, custom_nodes)
+
+    // Langkah 3: Input titik awal dan titik tujuan
+    start_node <- get_valid_node("Masukkan Titik Awal: ", custom_nodes)
+    end_node <- get_valid_node("Masukkan Titik Tujuan: ", custom_nodes)
+
+    // Jalankan Dijkstra pada graf dinamis
+    result <- run_dijkstra(custom_graph, start_node, end_node, custom_nodes)
+
+    // Visualisasikan tabel tracing dan kesimpulan rute
+    display_tracing_table(result.trace_records, custom_nodes)
+    display_path_result(start_node, end_node, result.path, result.total_distance, custom_graph)
+
+    pause_screen()
+END PROSEDUR
+
+
+----------------------------------------------------------------------------------------
+7. PROGRAM UTAMA (MAIN CONTROLLER)
+----------------------------------------------------------------------------------------
+
+ALGORITMA main()
+DESKRIPSI: Mengontrol navigasi siklus menu menggunakan match-case (Python 3.10+).
+BEGIN
+    WHILE TRUE DO
+        show_main_menu()
+        choice <- get_valid_menu_choice([1, 2, 3, 0])
+
+        MATCH choice DO
+            CASE 1:
+                run_hardcoded_simulation()
+            CASE 2:
+                run_dynamic_calculator()
+            CASE 3:
+                show_author_menu()
+            CASE 0:
+                show_goodbye_menu()
+                BREAK (Keluar dari perulangan)
+            DEFAULT:
+                Cetak "[ERROR] Pilihan menu tidak valid!"
+                pause_screen()
+        END MATCH
+    END WHILE
+END ALGORITMA
+
+
+// Titik Masuk Eksekusi Program (Entry Point Protection)
+IF __name__ = "__main__" THEN
+    main()
+END IF
+========================================================================================
+AKHIR DOKUMEN PSEUDOCODE
+========================================================================================
+
